@@ -1,0 +1,28 @@
+# Gym Store API (PHP) - route every request through index.php
+
+Options -Indexes
+DirectoryIndex index.php
+
+# Let index.php read multipart bodies itself (PUT uploads + several files named "images")
+<IfModule mod_php.c>
+  php_flag enable_post_data_reading Off
+</IfModule>
+<IfModule mod_php7.c>
+  php_flag enable_post_data_reading Off
+</IfModule>
+
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+
+  # Pass the Authorization header to PHP (Apache drops it by default on some setups)
+  RewriteCond %{HTTP:Authorization} .
+  RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+
+  RewriteRule ^index\.php$ - [L]
+  RewriteRule ^ index.php [QSA,L]
+</IfModule>
+
+# Never serve config, source or runtime files directly
+<FilesMatch "^\.env|\.(md|json|lock|sql|log)$">
+  Require all denied
+</FilesMatch>

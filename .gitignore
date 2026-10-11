@@ -1,0 +1,12 @@
+# Environment
+.env
+
+# Deployment packages
+*.zip
+
+# Session / Socket storage
+storage/
+
+# System files
+.DS_Store
+Thumbs.db
