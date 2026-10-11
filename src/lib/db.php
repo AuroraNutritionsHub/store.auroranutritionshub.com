@@ -3,10 +3,10 @@
 // ints come back as numbers, DECIMAL and dates as strings, `IN (?)` / bulk `VALUES ?`
 // accept arrays, and UPDATE reports matched rows (mysql2's FOUND_ROWS default).
 
-function db(): PDO
+function db(bool $forceNew = false): PDO
 {
     static $pdo = null;
-    if ($pdo) return $pdo;
+    if ($pdo && !$forceNew) return $pdo;
 
     $url = env('DATABASE_URL');
     if ($url) {
@@ -76,16 +76,35 @@ function expand_params(string $sql, array $params): array
 function q(string $sql, array $params = [])
 {
     [$sql, $flat] = expand_params($sql, $params);
-    $st = db()->prepare($sql);
-    foreach ($flat as $idx => $v) {
-        if (is_bool($v)) $v = (int) $v;
-        if (is_float($v) && is_nan($v)) $v = 'NaN';
-        $type = is_int($v) ? PDO::PARAM_INT : ($v === null ? PDO::PARAM_NULL : PDO::PARAM_STR);
-        $st->bindValue($idx + 1, is_float($v) ? (string) $v : $v, $type);
+    $attempts = 0;
+    while (true) {
+        try {
+            $pdo = db($attempts > 0);
+            $st = $pdo->prepare($sql);
+            foreach ($flat as $idx => $v) {
+                if (is_bool($v)) $v = (int) $v;
+                if (is_float($v) && is_nan($v)) $v = 'NaN';
+                $type = is_int($v) ? PDO::PARAM_INT : ($v === null ? PDO::PARAM_NULL : PDO::PARAM_STR);
+                $st->bindValue($idx + 1, is_float($v) ? (string) $v : $v, $type);
+            }
+            $st->execute();
+            if ($st->columnCount() > 0) return $st->fetchAll();
+            return ['insertId' => (int) $pdo->lastInsertId(), 'affectedRows' => $st->rowCount()];
+        } catch (PDOException $e) {
+            $err = $e->errorInfo[1] ?? 0;
+            $msg = $e->getMessage();
+            $isGoneAway = ($err == 2006 || $err == 2013 || stripos($msg, 'server has gone away') !== false || stripos($msg, 'Lost connection') !== false);
+            if ($isGoneAway && $attempts === 0) {
+                $inTx = false;
+                try { $inTx = db()->inTransaction(); } catch (Throwable $t) {}
+                if (!$inTx) {
+                    $attempts++;
+                    continue;
+                }
+            }
+            throw $e;
+        }
     }
-    $st->execute();
-    if ($st->columnCount() > 0) return $st->fetchAll();
-    return ['insertId' => (int) db()->lastInsertId(), 'affectedRows' => $st->rowCount()];
 }
 
 function q1(string $sql, array $params = []): ?array
@@ -96,7 +115,16 @@ function q1(string $sql, array $params = []): ?array
 
 function db_begin(): void
 {
-    db()->beginTransaction();
+    try {
+        db()->beginTransaction();
+    } catch (PDOException $e) {
+        $err = $e->errorInfo[1] ?? 0;
+        if ($err == 2006 || $err == 2013 || stripos($e->getMessage(), 'server has gone away') !== false) {
+            db(true)->beginTransaction();
+        } else {
+            throw $e;
+        }
+    }
 }
 
 function db_commit(): void
@@ -108,3 +136,4 @@ function db_rollback(): void
 {
     if (db()->inTransaction()) db()->rollBack();
 }
+

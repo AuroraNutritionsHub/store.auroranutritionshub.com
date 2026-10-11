@@ -119,3 +119,12 @@ function like(string $s): string
 {
     return "%$s%";
 }
+
+// Fallback polyfill for hosting environments missing the mbstring extension
+if (!function_exists('mb_strlen')) {
+    function mb_strlen(string $string, ?string $encoding = null): int
+    {
+        return strlen($string);
+    }
+}
+
