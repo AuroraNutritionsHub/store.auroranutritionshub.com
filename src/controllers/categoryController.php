@@ -45,10 +45,7 @@ function updateCategory(Req $R): void
 
     $image = $existing[0]['image'];
     if ($R->file) {
-        if ($image) {
-            $oldPath = uploads_root() . '/' . $image;
-            if (is_file($oldPath)) unlink($oldPath);
-        }
+        delete_upload($image);
         $image = 'categories/' . $R->file['filename'];
     }
 
@@ -61,8 +58,9 @@ function updateCategory(Req $R): void
 
 function deleteCategory(Req $R): void
 {
-    $existing = q('SELECT id FROM categories WHERE id = ?', [$R->p('id')]);
+    $existing = q('SELECT id, image FROM categories WHERE id = ?', [$R->p('id')]);
     if (!$existing) error_res('Category not found', 404);
     q('DELETE FROM categories WHERE id = ?', [$R->p('id')]);
+    delete_upload($existing[0]['image']);
     success('Category deleted successfully');
 }

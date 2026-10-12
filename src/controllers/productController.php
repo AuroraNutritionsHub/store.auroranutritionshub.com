@@ -140,9 +140,12 @@ function updateProduct(Req $R): void
 // DELETE /api/products/:id
 function deleteProduct(Req $R): void
 {
-    $existing = q('SELECT id FROM products WHERE id = ?', [$R->p('id')]);
+    $existing = q('SELECT id, image FROM products WHERE id = ?', [$R->p('id')]);
     if (!$existing) error_res('Product not found', 404);
+    $gallery = q('SELECT image FROM product_images WHERE product_id = ?', [$R->p('id')]);
     q('DELETE FROM products WHERE id = ?', [$R->p('id')]);
+    delete_upload($existing[0]['image']);
+    foreach ($gallery as $img) delete_upload($img['image']);
     success('Product deleted successfully');
 }
 
@@ -152,8 +155,7 @@ function deleteProductImage(Req $R): void
     $rows = q('SELECT * FROM product_images WHERE id = ?', [$R->p('imageId')]);
     if (!$rows) error_res('Image not found', 404);
 
-    $filePath = uploads_root() . '/' . $rows[0]['image'];
-    if (is_file($filePath)) unlink($filePath);
+    delete_upload($rows[0]['image']);
 
     q('DELETE FROM product_images WHERE id = ?', [$R->p('imageId')]);
     success('Image removed');

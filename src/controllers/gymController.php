@@ -72,10 +72,7 @@ function updateGym(Req $R): void
 
     $logo = $existing[0]['logo'];
     if ($R->file) {
-        if ($logo) {
-            $oldPath = uploads_root() . '/' . $logo;
-            if (is_file($oldPath)) unlink($oldPath);
-        }
+        delete_upload($logo);
         $logo = 'gyms/' . $R->file['filename'];
     }
 
@@ -94,10 +91,11 @@ function updateGym(Req $R): void
 // DELETE /api/gyms/:id
 function deleteGym(Req $R): void
 {
-    $existing = q('SELECT id FROM gyms WHERE id = ?', [$R->p('id')]);
+    $existing = q('SELECT id, logo FROM gyms WHERE id = ?', [$R->p('id')]);
     if (!$existing) error_res('Gym not found', 404);
 
     q('DELETE FROM gyms WHERE id = ?', [$R->p('id')]);
+    delete_upload($existing[0]['logo']);
     success('Gym deleted successfully');
 }
 

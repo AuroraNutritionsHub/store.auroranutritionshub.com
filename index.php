@@ -82,6 +82,8 @@ try {
     // Serve uploaded images/files
     if (in_array($R->method, ['GET', 'HEAD'], true) && preg_match('#^/uploads/(.+)$#i', $path, $m)) {
         serve_static(uploads_root(), $m[1]);
+        serve_upload_from_db($m[1]);
+        not_found($R);
     }
 
     if (in_array($R->method, ['GET', 'HEAD'], true) && preg_match('#^/api/health/?$#i', $path)) {

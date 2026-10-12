@@ -21,10 +21,7 @@ function updatePaymentSettings(Req $R): void
 
     $qrImage = $existing ? $existing[0]['qr_image'] : null;
     if ($R->file) {
-        if ($qrImage) {
-            $oldPath = uploads_root() . '/' . $qrImage;
-            if (is_file($oldPath)) unlink($oldPath);
-        }
+        delete_upload($qrImage);
         $qrImage = 'qr/' . $R->file['filename'];
     }
 
@@ -75,10 +72,7 @@ function updateShopSettings(Req $R): void
     $logo = $existing[0]['logo'] ?? null;
     if (!t($logo)) $logo = null;
     if ($R->file) {
-        if ($logo) {
-            $oldPath = uploads_root() . '/' . $logo;
-            if (is_file($oldPath)) unlink($oldPath);
-        }
+        delete_upload($logo);
         $logo = 'shop/' . $R->file['filename'];
     }
 

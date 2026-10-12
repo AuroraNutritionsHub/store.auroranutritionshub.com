@@ -202,6 +202,56 @@ function uploads_root(): string
     return rtrim(str_replace('\\', '/', $root), '/');
 }
 
+// Uploaded images live in MySQL (`uploaded_files`) because the host can't grant the app write
+// access to uploads/. Older images shipped in uploads/ are still served from disk first.
+function ensure_uploads_table(): void
+{
+    static $done = false;
+    if ($done) return;
+    q('CREATE TABLE IF NOT EXISTS uploaded_files (
+        id int(10) UNSIGNED NOT NULL AUTO_INCREMENT,
+        path varchar(255) NOT NULL,
+        mime varchar(100) NOT NULL,
+        size int(10) UNSIGNED NOT NULL,
+        data longblob NOT NULL,
+        created_at timestamp NOT NULL DEFAULT current_timestamp(),
+        PRIMARY KEY (id),
+        UNIQUE KEY uq_uploaded_files_path (path)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci');
+    $done = true;
+}
+
+// $path is relative to uploads/, e.g. "categories/1712-55.png"
+function store_upload(string $path, string $mime, string $data): void
+{
+    ensure_uploads_table();
+    // Sent as base64 so raw bytes never pass through the utf8mb4 connection as a string literal
+    q('INSERT INTO uploaded_files (path, mime, size, data) VALUES (?, ?, ?, FROM_BASE64(?))',
+        [$path, $mime, strlen($data), base64_encode($data)]);
+}
+
+// Removes an uploaded image from the database (images shipped in uploads/ are left alone)
+function delete_upload(?string $path): void
+{
+    if (!$path) return;
+    ensure_uploads_table();
+    q('DELETE FROM uploaded_files WHERE path = ?', [$path]);
+}
+
+// Serves an uploaded image from the database; returns false when it isn't there
+function serve_upload_from_db(string $path): bool
+{
+    ensure_uploads_table();
+    $row = q1('SELECT mime, size, data FROM uploaded_files WHERE path = ?', [rawurldecode($path)]);
+    if (!$row) return false;
+    header('Content-Type: ' . $row['mime']);
+    header('Content-Length: ' . $row['size']);
+    // File names are unique per upload, so the browser can keep them
+    header('Cache-Control: public, max-age=31536000, immutable');
+    if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'HEAD') echo $row['data'];
+    exit;
+}
+
 // path.extname: ".png" for "a.png", "" for ".png" or "a"
 function js_extname(string $name): string
 {
@@ -232,20 +282,16 @@ function upload(string $subfolder, string $field, int $maxCount, bool $single): 
             $accepted[] = $f;
         }
 
-        $dir = uploads_root() . '/' . $subfolder;
-        if (!is_dir($dir)) mkdir($dir, 0775, true);
-
         $saved = [];
         foreach ($accepted as $f) {
             $filename = (int) floor(microtime(true) * 1000) . '-' . random_int(0, 1000000000) . js_extname($f['name']);
-            $dest = "$dir/$filename";
-            $ok = isset($f['data'])
-                ? file_put_contents($dest, $f['data']) !== false
-                : (is_uploaded_file($f['tmp']) ? move_uploaded_file($f['tmp'], $dest) : rename($f['tmp'], $dest));
-            if (!$ok) throw new HttpError('Could not save uploaded file', 500);
+            $data = $f['data'] ?? @file_get_contents($f['tmp']);
+            if ($data === false) throw new HttpError('Could not save uploaded file', 500);
+            store_upload("$subfolder/$filename", $f['type'], $data);
+            if (!isset($f['data'])) @unlink($f['tmp']);
             $saved[] = [
                 'fieldname' => $f['field'], 'originalname' => $f['name'], 'mimetype' => $f['type'],
-                'size' => $f['size'], 'filename' => $filename, 'path' => $dest,
+                'size' => $f['size'], 'filename' => $filename, 'path' => "$subfolder/$filename",
             ];
         }
 
