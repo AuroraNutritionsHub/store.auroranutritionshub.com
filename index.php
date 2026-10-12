@@ -9,7 +9,6 @@ require APP_ROOT . '/src/lib/db.php';
 require APP_ROOT . '/src/lib/request.php';
 require APP_ROOT . '/src/lib/auth.php';
 require APP_ROOT . '/src/lib/router.php';
-require APP_ROOT . '/src/lib/socket.php';
 require APP_ROOT . '/src/services/services.php';
 foreach (glob(APP_ROOT . '/src/controllers/*.php') as $controller) require $controller;
 require APP_ROOT . '/src/routes.php';
@@ -63,9 +62,6 @@ $R = Req::fromGlobals();
 
 try {
     $path = $R->path;
-
-    // Socket.IO endpoint (handled before CORS/body parsing, like socket.io on the Node http server)
-    if (preg_match('#^/socket\.io(/|$)#', $path)) handle_socket($R);
 
     // cors()
     header('Access-Control-Allow-Origin: *');
