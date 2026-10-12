@@ -85,7 +85,7 @@ try {
     }
 
     if (in_array($R->method, ['GET', 'HEAD'], true) && preg_match('#^/api/health/?$#i', $path)) {
-        send_json(200, ['success' => true, 'message' => 'Gym Store API is running', 'php' => PHP_BINARY, 'ini' => php_ini_loaded_file(), 'sapi' => PHP_SAPI]);
+        send_json(200, ['success' => true, 'message' => 'Gym Store API is running']);
     }
 
     if (preg_match('#^/api(/.*)?$#i', $path, $m)) {
