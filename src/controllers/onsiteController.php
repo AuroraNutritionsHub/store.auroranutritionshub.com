@@ -3,31 +3,26 @@
 const ALLOWED_DISCOUNTS = [0, 5, 10, 15];
 const ALLOWED_PAYMENT_METHODS = ['CASH', 'CARD', 'UPI'];
 
-// GET /api/onsite/categories?gym_id=  - categories with at least one active product enabled for this gym
+// GET /api/onsite/categories  - categories with at least one active product (onsite billing is not gym-restricted)
 function getOnsiteCategories(Req $R): void
 {
-    $gymId = $R->qp('gym_id', null);
-    if (!t($gymId)) error_res('gym_id is required', 400);
-
     $rows = q(
         "SELECT DISTINCT c.* FROM categories c
          JOIN products p ON p.category_id = c.id AND p.status = 'ACTIVE'
-         JOIN gym_products gp ON gp.product_id = p.id AND gp.gym_id = ? AND gp.status = 'ACTIVE'
-         ORDER BY c.name ASC",
-        [$gymId]
+         ORDER BY c.name ASC"
     );
     success('Categories fetched', $rows);
 }
 
-// GET /api/onsite/products?gym_id=&category_id=  - products with resolved onsite price + live stock
+// GET /api/onsite/products?gym_id=&category_id=  - all active products with resolved onsite price + live stock
+// (gym_id is optional and only picks up that gym's stock overrides)
 function getOnsiteProducts(Req $R): void
 {
     $gymId = $R->qp('gym_id', null);
     $categoryId = $R->qp('category_id');
-    if (!t($gymId)) error_res('gym_id is required', 400);
 
-    $where = "WHERE gp.gym_id = ? AND gp.status = 'ACTIVE' AND p.status = 'ACTIVE'";
-    $params = [$gymId];
+    $where = "WHERE p.status = 'ACTIVE'";
+    $params = [];
     if (t($categoryId)) {
         $where .= ' AND p.category_id = ?';
         $params[] = $categoryId;
@@ -37,7 +32,6 @@ function getOnsiteProducts(Req $R): void
         "SELECT p.id, p.name, p.brand, p.image, c.id AS category_id, c.name AS category_name
          FROM products p
          JOIN categories c ON c.id = p.category_id
-         JOIN gym_products gp ON gp.product_id = p.id
          $where
          ORDER BY p.name ASC",
         $params
@@ -106,20 +100,19 @@ function createOnsiteBill(Req $R): void
             $rows = q(
                 'SELECT pv.id AS variant_id, pv.variant_name, pv.status AS variant_status, pv.price, pv.onsite_price,
                         pv.stock AS base_stock, p.id AS product_id, p.name AS product_name, p.status AS product_status,
-                        gp.status AS gym_product_status, gpv.stock AS override_stock, gpv.status AS gym_variant_status
+                        gpv.stock AS override_stock, gpv.status AS gym_variant_status
                  FROM product_variants pv
                  JOIN products p ON p.id = pv.product_id
-                 JOIN gym_products gp ON gp.product_id = p.id AND gp.gym_id = ?
                  LEFT JOIN gym_product_variants gpv ON gpv.variant_id = pv.id AND gpv.gym_id = ?
                  WHERE pv.id = ?
                  FOR UPDATE',
-                [$gymId, $gymId, $variantId]
+                [$gymId, $variantId]
             );
 
-            if (!$rows) throw new HttpError('Product is not available for this gym', 400);
+            if (!$rows) throw new HttpError('Product not found', 400);
             $row = $rows[0];
 
-            if ($row['product_status'] !== 'ACTIVE' || $row['variant_status'] !== 'ACTIVE' || $row['gym_product_status'] !== 'ACTIVE') {
+            if ($row['product_status'] !== 'ACTIVE' || $row['variant_status'] !== 'ACTIVE') {
                 throw new HttpError("{$row['product_name']} is currently unavailable", 400);
             }
             if (t($row['gym_variant_status']) && $row['gym_variant_status'] !== 'ACTIVE') {
