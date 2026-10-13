@@ -305,7 +305,7 @@ INSERT INTO `notifications` (`id`, `gym_id`, `user_id`, `order_id`, `title`, `me
 CREATE TABLE `orders` (
   `id` int(10) UNSIGNED NOT NULL,
   `order_number` varchar(20) NOT NULL,
-  `gym_id` int(10) UNSIGNED NOT NULL,
+  `gym_id` int(10) UNSIGNED DEFAULT NULL,
   `user_id` int(10) UNSIGNED DEFAULT NULL,
   `customer_name` varchar(100) DEFAULT NULL,
   `customer_phone` varchar(20) DEFAULT NULL,

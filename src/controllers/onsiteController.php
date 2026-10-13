@@ -3,6 +3,21 @@
 const ALLOWED_DISCOUNTS = [0, 5, 10, 15];
 const ALLOWED_PAYMENT_METHODS = ['CASH', 'CARD', 'UPI'];
 
+// Onsite billing is not tied to any gym: it lists every active product with its base stock,
+// and bills are saved with orders.gym_id = NULL. Older databases have that column NOT NULL,
+// so relax it once (runs outside the bill transaction because ALTER TABLE auto-commits).
+function ensure_onsite_orders_without_gym(): void
+{
+    static $done = false;
+    if ($done) return;
+    $col = q1(
+        "SELECT IS_NULLABLE FROM INFORMATION_SCHEMA.COLUMNS
+         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'orders' AND COLUMN_NAME = 'gym_id'"
+    );
+    if ($col && $col['IS_NULLABLE'] === 'NO') q('ALTER TABLE orders MODIFY gym_id int(10) UNSIGNED NULL');
+    $done = true;
+}
+
 // GET /api/onsite/categories  - categories with at least one active product (onsite billing is not gym-restricted)
 function getOnsiteCategories(Req $R): void
 {
@@ -14,11 +29,9 @@ function getOnsiteCategories(Req $R): void
     success('Categories fetched', $rows);
 }
 
-// GET /api/onsite/products?gym_id=&category_id=  - all active products with resolved onsite price + live stock
-// (gym_id is optional and only picks up that gym's stock overrides)
+// GET /api/onsite/products?category_id=  - all active products with onsite price and base stock
 function getOnsiteProducts(Req $R): void
 {
-    $gymId = $R->qp('gym_id', null);
     $categoryId = $R->qp('category_id');
 
     $where = "WHERE p.status = 'ACTIVE'";
@@ -39,25 +52,22 @@ function getOnsiteProducts(Req $R): void
     if (!$products) success('Products fetched', []);
 
     $variants = q(
-        "SELECT pv.id, pv.product_id, pv.variant_name, pv.unit, pv.price, pv.onsite_price, pv.stock AS base_stock,
-                gpv.stock AS override_stock, gpv.status AS gym_variant_status
+        "SELECT pv.id, pv.product_id, pv.variant_name, pv.unit, pv.price, pv.onsite_price, pv.stock
          FROM product_variants pv
-         LEFT JOIN gym_product_variants gpv ON gpv.variant_id = pv.id AND gpv.gym_id = ?
          WHERE pv.product_id IN (?) AND pv.status = 'ACTIVE'
          ORDER BY pv.price ASC",
-        [$gymId, array_column($products, 'id')]
+        [array_column($products, 'id')]
     );
 
     $resolved = [];
     foreach ($variants as $v) {
-        if (t($v['gym_variant_status']) && $v['gym_variant_status'] !== 'ACTIVE') continue;
         $resolved[] = [
             'id' => $v['id'],
             'product_id' => $v['product_id'],
             'variant_name' => $v['variant_name'],
             'unit' => $v['unit'],
             'price' => $v['onsite_price'] !== null ? num($v['onsite_price']) : num($v['price']),
-            'stock' => $v['override_stock'] !== null ? num($v['override_stock']) : num($v['base_stock']),
+            'stock' => num($v['stock']),
         ];
     }
 
@@ -70,10 +80,9 @@ function getOnsiteProducts(Req $R): void
     success('Products fetched', $result);
 }
 
-// POST /api/onsite/bill  - { gym_id, customer_name, customer_phone, customer_address, items:[{variant_id,quantity}], discount_percent, payment_method }
+// POST /api/onsite/bill  - { customer_name, customer_phone, customer_address, items:[{variant_id,quantity}], discount_percent, payment_method }
 function createOnsiteBill(Req $R): void
 {
-    $gymId = $R->b('gym_id');
     $items = $R->b('items');
     $discountPercent = $R->has('discount_percent') ? $R->b('discount_percent') : 0;
     $paymentMethod = $R->b('payment_method');
@@ -81,11 +90,12 @@ function createOnsiteBill(Req $R): void
     $customerPhone = trim((string) orv($R->b('customer_phone'), ''));
     $customerAddress = trim((string) orv($R->b('customer_address'), ''));
 
-    if (!t($gymId)) error_res('Gym is required', 400);
     if ($customerName === '') error_res('Customer name is required', 400);
     if (!is_list_array($items) || count($items) === 0) error_res('Bill must contain at least one item', 400);
     if (!in_array(num($discountPercent), ALLOWED_DISCOUNTS)) error_res('Invalid discount percentage', 400);
     if (!in_array($paymentMethod, ALLOWED_PAYMENT_METHODS, true)) error_res('Please select a valid payment method (Cash, Card or UPI)', 400);
+
+    ensure_onsite_orders_without_gym();
 
     db_begin();
     try {
@@ -99,14 +109,12 @@ function createOnsiteBill(Req $R): void
 
             $rows = q(
                 'SELECT pv.id AS variant_id, pv.variant_name, pv.status AS variant_status, pv.price, pv.onsite_price,
-                        pv.stock AS base_stock, p.id AS product_id, p.name AS product_name, p.status AS product_status,
-                        gpv.stock AS override_stock, gpv.status AS gym_variant_status
+                        pv.stock, p.id AS product_id, p.name AS product_name, p.status AS product_status
                  FROM product_variants pv
                  JOIN products p ON p.id = pv.product_id
-                 LEFT JOIN gym_product_variants gpv ON gpv.variant_id = pv.id AND gpv.gym_id = ?
                  WHERE pv.id = ?
                  FOR UPDATE',
-                [$gymId, $variantId]
+                [$variantId]
             );
 
             if (!$rows) throw new HttpError('Product not found', 400);
@@ -115,13 +123,7 @@ function createOnsiteBill(Req $R): void
             if ($row['product_status'] !== 'ACTIVE' || $row['variant_status'] !== 'ACTIVE') {
                 throw new HttpError("{$row['product_name']} is currently unavailable", 400);
             }
-            if (t($row['gym_variant_status']) && $row['gym_variant_status'] !== 'ACTIVE') {
-                throw new HttpError("{$row['product_name']} is currently unavailable for this gym", 400);
-            }
-
-            $usesOverrideStock = $row['override_stock'] !== null;
-            $availableStock = $usesOverrideStock ? num($row['override_stock']) : num($row['base_stock']);
-            if ($availableStock < $quantity) {
+            if (num($row['stock']) < $quantity) {
                 throw new HttpError("Insufficient stock for {$row['product_name']} ({$row['variant_name']})", 400);
             }
 
@@ -139,11 +141,7 @@ function createOnsiteBill(Req $R): void
                 'total_price' => $totalPrice,
             ];
 
-            if ($usesOverrideStock) {
-                q('UPDATE gym_product_variants SET stock = stock - ? WHERE gym_id = ? AND variant_id = ?', [$quantity, $gymId, $variantId]);
-            } else {
-                q('UPDATE product_variants SET stock = stock - ? WHERE id = ?', [$quantity, $variantId]);
-            }
+            q('UPDATE product_variants SET stock = stock - ? WHERE id = ?', [$quantity, $variantId]);
         }
 
         $subtotal = r2($subtotal);
@@ -153,8 +151,8 @@ function createOnsiteBill(Req $R): void
 
         $orderId = q(
             "INSERT INTO orders (order_number, gym_id, user_id, customer_name, customer_phone, source, subtotal, discount_percent, discount_amount, delivery_charge, total_amount, payment_status, order_status, delivery_address)
-             VALUES (?, ?, NULL, ?, ?, 'ONSITE', ?, ?, ?, 0, ?, 'VERIFIED', 'DELIVERED', ?)",
-            [$orderNumber, $gymId, $customerName, $customerPhone !== '' ? $customerPhone : null, $subtotal, $discountPercent, $discountAmount, $totalAmount, $customerAddress !== '' ? $customerAddress : 'Onsite / Walk-in Purchase']
+             VALUES (?, NULL, NULL, ?, ?, 'ONSITE', ?, ?, ?, 0, ?, 'VERIFIED', 'DELIVERED', ?)",
+            [$orderNumber, $customerName, $customerPhone !== '' ? $customerPhone : null, $subtotal, $discountPercent, $discountAmount, $totalAmount, $customerAddress !== '' ? $customerAddress : 'Onsite / Walk-in Purchase']
         )['insertId'];
 
         foreach ($lineItems as $item) {

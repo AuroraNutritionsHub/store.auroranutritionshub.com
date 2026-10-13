@@ -94,7 +94,7 @@ function getRecentOrders(Req $R): void
         "SELECT o.id, o.order_number, o.total_amount, o.payment_status, o.order_status, o.created_at,
                 COALESCE(u.name, o.customer_name) AS customer_name,
                 CASE WHEN o.source = 'ONSITE' THEN 'Onsite Purchase' ELSE g.gym_name END AS gym_name
-         FROM orders o LEFT JOIN users u ON u.id = o.user_id JOIN gyms g ON g.id = o.gym_id
+         FROM orders o LEFT JOIN users u ON u.id = o.user_id LEFT JOIN gyms g ON g.id = o.gym_id
          ORDER BY o.created_at DESC LIMIT 10"
     );
     success('Recent orders fetched', $rows);
@@ -134,7 +134,7 @@ function getReport(Req $R): void
         "SELECT o.id, o.order_number, o.total_amount, o.payment_status, o.order_status, o.source, o.created_at,
                 COALESCE(u.name, o.customer_name) AS customer_name,
                 CASE WHEN o.source = 'ONSITE' THEN 'Onsite Purchase' ELSE g.gym_name END AS gym_name
-         FROM orders o LEFT JOIN users u ON u.id = o.user_id JOIN gyms g ON g.id = o.gym_id
+         FROM orders o LEFT JOIN users u ON u.id = o.user_id LEFT JOIN gyms g ON g.id = o.gym_id
          $where ORDER BY o.created_at DESC LIMIT 500",
         $params
     );

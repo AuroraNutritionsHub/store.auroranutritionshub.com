@@ -125,11 +125,11 @@ function getOrders(Req $R): void
                 CASE WHEN o.source = 'ONSITE' THEN 'Onsite Purchase' ELSE g.gym_name END AS gym_name
          FROM orders o
          LEFT JOIN users u ON u.id = o.user_id
-         JOIN gyms g ON g.id = o.gym_id
+         LEFT JOIN gyms g ON g.id = o.gym_id
          $where ORDER BY o.created_at DESC LIMIT ? OFFSET ?",
         array_merge($params, [num($limit), $offset])
     );
-    $count = q("SELECT COUNT(*) AS total FROM orders o LEFT JOIN users u ON u.id = o.user_id JOIN gyms g ON g.id = o.gym_id $where", $params);
+    $count = q("SELECT COUNT(*) AS total FROM orders o LEFT JOIN users u ON u.id = o.user_id LEFT JOIN gyms g ON g.id = o.gym_id $where", $params);
 
     success('Orders fetched', ['orders' => $rows, 'total' => $count[0]['total'], 'page' => num($page), 'limit' => num($limit)]);
 }
@@ -140,7 +140,7 @@ function getOrderById(Req $R): void
     $orders = q(
         'SELECT o.*, COALESCE(u.name, o.customer_name) AS customer_name, COALESCE(u.phone, o.customer_phone) AS customer_phone, u.email AS customer_email,
                 g.gym_name, g.gym_code, g.logo AS gym_logo, g.address AS gym_address, g.phone AS gym_phone, g.email AS gym_email
-         FROM orders o LEFT JOIN users u ON u.id = o.user_id JOIN gyms g ON g.id = o.gym_id
+         FROM orders o LEFT JOIN users u ON u.id = o.user_id LEFT JOIN gyms g ON g.id = o.gym_id
          WHERE o.id = ?',
         [$R->p('id')]
     );
