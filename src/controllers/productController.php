@@ -51,6 +51,7 @@ function getProducts(Req $R): void
     $search = $R->qp('search');
     $status = $R->qp('status');
     $categoryId = $R->qp('category_id');
+    $brand = $R->qp('brand');
     $page = $R->qp('page', 1);
     $limit = $R->qp('limit', 20);
     $offset = (num($page) - 1) * num($limit);
@@ -69,6 +70,10 @@ function getProducts(Req $R): void
         $where .= ' AND p.category_id = ?';
         $params[] = $categoryId;
     }
+    if (t($brand)) {
+        $where .= ' AND p.brand = ?';
+        $params[] = $brand;
+    }
 
     $rows = q(
         "SELECT p.*, c.name AS category_name
@@ -79,7 +84,14 @@ function getProducts(Req $R): void
     $count = q("SELECT COUNT(*) AS total FROM products p JOIN categories c ON c.id = p.category_id $where", $params);
 
     $products = attachImages(attachVariants($rows));
-    success('Products fetched', ['products' => $products, 'total' => $count[0]['total'], 'page' => num($page), 'limit' => num($limit)]);
+    $brands = q("SELECT DISTINCT brand FROM products WHERE brand IS NOT NULL AND brand != '' ORDER BY brand ASC");
+    success('Products fetched', [
+        'products' => $products,
+        'brands' => array_column($brands, 'brand'),
+        'total' => $count[0]['total'],
+        'page' => num($page),
+        'limit' => num($limit),
+    ]);
 }
 
 // GET /api/products/:id
@@ -122,17 +134,25 @@ function createProduct(Req $R): void
 }
 
 // PUT /api/products/:id  (multipart, field "images" - any new files are appended to the gallery)
+// Sending remove_cover=1 drops the current cover photo; when files are uploaded in the same
+// request, the first of them becomes the new cover.
 function updateProduct(Req $R): void
 {
     $existing = q('SELECT * FROM products WHERE id = ?', [$R->p('id')]);
     if (!$existing) error_res('Product not found', 404);
 
+    $cover = $existing[0]['image'];
+    if (num($R->b('remove_cover')) === 1 && t($cover)) {
+        delete_upload($cover);
+        $cover = null;
+    }
+
     q(
-        'UPDATE products SET category_id = ?, name = ?, brand = ?, description = ?, status = ? WHERE id = ?',
-        [$R->b('category_id'), $R->b('name'), orn($R->b('brand')), orn($R->b('description')), $R->b('status'), $R->p('id')]
+        'UPDATE products SET category_id = ?, name = ?, brand = ?, description = ?, status = ?, image = ? WHERE id = ?',
+        [$R->b('category_id'), $R->b('name'), orn($R->b('brand')), orn($R->b('description')), $R->b('status'), $cover, $R->p('id')]
     );
 
-    saveUploadedImages($R->p('id'), $R->files, t($existing[0]['image']));
+    saveUploadedImages($R->p('id'), $R->files, t($cover));
 
     success('Product updated successfully');
 }

@@ -650,3 +650,38 @@ form .flex.gap-2 button.bg-gradient-to-r {
   color: #cbd5e1 !important;
   margin-bottom: 0.4rem !important;
 }
+
+/* Thumbnail delete buttons: pin to top-right (the password-toggle centering rule
+   matches these too and would otherwise center them on the image) */
+.relative.group > button.absolute {
+  top: 0.25rem !important;
+  right: 0.25rem !important;
+  left: auto !important;
+  bottom: auto !important;
+  transform: none !important;
+}
+
+/* ==========================================================================
+   10. ONSITE BILLING PRODUCT CARDS (larger image, smaller Add button)
+   ========================================================================== */
+
+/* Product thumbnail: 3.5rem -> 5rem */
+.grid.sm\:grid-cols-2 > .border.border-white\/10.rounded-xl > .w-14.h-14.rounded-lg.bg-white\/5 {
+  width: 5rem !important;
+  height: 5rem !important;
+}
+
+/* Keep the thumbnail image filling the larger box */
+.grid.sm\:grid-cols-2 > .border.border-white\/10.rounded-xl > .w-14.h-14.rounded-lg.bg-white\/5 img {
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: cover !important;
+}
+
+/* Add button: compact height and font instead of a chunky full-width bar */
+.grid.sm\:grid-cols-2 > .border.border-white\/10.rounded-xl button.btn-primary {
+  padding-top: 0.25rem !important;
+  padding-bottom: 0.25rem !important;
+  font-size: 0.7rem !important;
+  line-height: 1.2 !important;
+}
